@@ -28,6 +28,8 @@ class SoftLimit extends Plugin
     public string $schemaVersion = '1.0.0';
     public bool $hasCpSettings = true;
 
+    private static bool $immediateScriptInjected = false;
+
     public static function config(): array
     {
         return [
@@ -121,10 +123,6 @@ class SoftLimit extends Plugin
                                 Craft::warning("Soft Limit: Invalid limit '{$rawLimit}' for field '{$field->handle}'. Skipping.", __METHOD__);
                                 return;
                             }
-
-                            // Clean the instructions on the server side
-                            $field->instructions = preg_replace('/\s*\[soft-limit:\d+\]\s*/', ' ', $field->instructions);
-                            $field->instructions = trim(preg_replace('/\s+/', ' ', $field->instructions));
                         }
                     }
 
@@ -142,6 +140,23 @@ class SoftLimit extends Plugin
                             'data-field-class="' . htmlspecialchars($fieldClass) . '">' .
                             '0/' . $softLimit . '</div>';
 
+                        // Only inject the immediate script once per page load
+                        if (!self::$immediateScriptInjected) {
+                            self::$immediateScriptInjected = true;
+
+                            // Get the script path relative to the plugin base path
+                            $scriptPath = $this->getBasePath() . '/web/assets/cp/dist/immediate-cleanup.js';
+
+                            if (file_exists($scriptPath)) {
+                                $scriptContent = file_get_contents($scriptPath);
+
+                                // Inject inline for immediate execution
+                                $immediateScript = '<script>' . $scriptContent . '</script>';
+                                $event->html .= $immediateScript;
+                            } else {
+                                Craft::warning("Soft Limit: Could not find immediate cleanup script at {$scriptPath}", __METHOD__);
+                            }
+                        }
                         $event->html .= $counterHtml;
                     }
                 }
