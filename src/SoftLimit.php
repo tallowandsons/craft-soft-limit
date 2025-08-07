@@ -6,7 +6,9 @@ use Craft;
 use craft\base\Field;
 use craft\base\Model;
 use craft\base\Plugin;
+use craft\base\SavableComponent;
 use craft\events\DefineFieldHtmlEvent;
+use craft\events\ModelEvent;
 use craft\events\TemplateEvent;
 use craft\fields\PlainText;
 use craft\web\View;
@@ -72,6 +74,7 @@ class SoftLimit extends Plugin
         // (see https://craftcms.com/docs/5.x/extend/events.html to get started)
 
         $this->registerFieldEvents();
+        $this->registerFieldValidation();
     }
 
     /**
@@ -91,9 +94,13 @@ class SoftLimit extends Plugin
         );
     }
 
-    private function registerFieldEvents()
+    /**
+     * Get the field types that support soft limit functionality
+     *
+     * @return array
+     */
+    private function getAllowedFieldTypes(): array
     {
-        // Add input HTML modifications to supported field types
         $fieldTypes = [
             PlainText::class,
         ];
@@ -103,7 +110,12 @@ class SoftLimit extends Plugin
             $fieldTypes[] = 'craft\\ckeditor\\Field';
         }
 
-        foreach ($fieldTypes as $fieldType) {
+        return $fieldTypes;
+    }
+
+    private function registerFieldEvents()
+    {
+        foreach ($this->getAllowedFieldTypes() as $fieldType) {
             // Hook into input HTML generation
             Event::on(
                 $fieldType,
@@ -168,6 +180,84 @@ class SoftLimit extends Plugin
     }
 
     /**
+     * Registers field validation for soft limit instructions
+     */
+    private function registerFieldValidation(): void
+    {
+        foreach ($this->getAllowedFieldTypes() as $fieldType) {
+            Event::on(
+                $fieldType,
+                SavableComponent::EVENT_BEFORE_SAVE,
+                function (ModelEvent $event) {
+                    /** @var Field $field */
+                    $field = $event->sender;
+
+                    // Only validate if field has instructions
+                    if (!$field->instructions) {
+                        return;
+                    }
+
+                    $this->validateSoftLimitInstructions($field, $event);
+                }
+            );
+        }
+    }
+
+    /**
+     * Validates soft limit instructions in field instructions
+     *
+     * @param Field $field The field being saved
+     * @param ModelEvent $event The model event
+     */
+    private function validateSoftLimitInstructions(Field $field, ModelEvent $event): void
+    {
+        $instructions = $field->instructions;
+
+        // Find all soft-limit markers in the instructions
+        $matches = [];
+        $matchCount = preg_match_all('/\[soft-limit:([^\]]+)\]/', $instructions, $matches, PREG_SET_ORDER);
+
+        if ($matchCount === 0) {
+            return; // No soft-limit markers found, nothing to validate
+        }
+
+        $errors = [];
+
+        foreach ($matches as $match) {
+            $fullMatch = $match[0]; // e.g., "[soft-limit:100]"
+            $limitValue = trim($match[1]); // e.g., "100"
+
+            // Check if the limit value is a valid integer
+            if (!ctype_digit($limitValue)) {
+                $errors[] = "Invalid soft limit value '{$limitValue}' in '{$fullMatch}'. Must be a positive integer.";
+                continue;
+            }
+
+            $numericLimit = (int)$limitValue;
+            $validatedLimit = $this->validateLimit($numericLimit);
+
+            if ($validatedLimit === null) {
+                $errors[] = "Invalid soft limit value '{$limitValue}' in '{$fullMatch}'. Must be between 1 and 100,000.";
+            }
+        }
+
+        // Check for multiple soft-limit markers (not allowed)
+        if ($matchCount > 1) {
+            $errors[] = "Multiple soft-limit markers found. Only one [soft-limit:X] marker is allowed per field.";
+        }
+
+        // If there are validation errors, prevent saving and add errors to the field
+        if (!empty($errors)) {
+            $event->isValid = false;
+
+            foreach ($errors as $error) {
+                $field->addError('instructions', $error);
+                Craft::warning("Soft Limit validation error for field '{$field->handle}': {$error}", __METHOD__);
+            }
+        }
+    }
+
+    /**
      * Validate and sanitize the soft limit value
      *
      * @param int $rawLimit
@@ -182,8 +272,7 @@ class SoftLimit extends Plugin
 
         // Check maximum limit (prevent performance issues and reasonable limits)
         if ($rawLimit > 100000) {
-            Craft::warning("Soft Limit: Limit {$rawLimit} is too large. Using maximum of 100,000.", __METHOD__);
-            return 100000;
+            return null;
         }
 
         return $rawLimit;
