@@ -42,7 +42,6 @@ class SoftLimitManager {
         counterElements.forEach((counterElement) => {
             if (!counterElement.dataset.initialized) {
                 this.initializeCounter(counterElement);
-                counterElement.dataset.initialized = "true";
             }
         });
     }
@@ -65,13 +64,22 @@ class SoftLimitManager {
         // Find the input element with improved error handling
         const input = this.findInputElement(inputId);
         if (!input) {
-            // Retry with timeout tracking
-            const retryTimer = setTimeout(() => {
-                this.retryTimers.delete(retryTimer);
-                this.initializeCounter(counterElement);
-            }, CONFIG.RETRY_DELAY);
-            this.retryTimers.add(retryTimer);
+            // Only retry if we haven't already marked this as initialized
+            if (!counterElement.dataset.initialized) {
+                // Retry with timeout tracking
+                const retryTimer = setTimeout(() => {
+                    this.retryTimers.delete(retryTimer);
+                    this.initializeCounter(counterElement);
+                }, CONFIG.RETRY_DELAY);
+                this.retryTimers.add(retryTimer);
+            }
             return;
+        }
+
+        // Check if this counter is already initialized
+        if (this.counters.has(inputId)) {
+            // Destroy existing counter first
+            this.counters.get(inputId).destroy();
         }
 
         // Find the field container
@@ -87,6 +95,7 @@ class SoftLimitManager {
         });
 
         this.counters.set(inputId, counter);
+        counterElement.dataset.initialized = "true";
     }
 
     validateLimit(rawLimit) {
@@ -150,13 +159,33 @@ class SoftLimitManager {
         // More targeted fallback using field containers
         const fields = document.querySelectorAll(".field");
         for (const field of fields) {
-            const input =
-                field.querySelector(`[name$="${inputId}"]`) ||
-                field.querySelector(`[name*="${inputId.split("-").pop()}"]`);
+            // Look for exact name match first
+            let input = field.querySelector(`[name="${inputId}"]`);
+            if (input) return input;
+
+            // Look for name ending with the inputId
+            input = field.querySelector(`[name$="${inputId}"]`);
+            if (input) return input;
+
+            // Look for partial match on the last part of the ID
+            const idPart = inputId.split("-").pop();
+            input = field.querySelector(`[name*="${idPart}"]`);
+            if (input) return input;
+
+            // Look for id matches
+            input =
+                field.querySelector(`[id="${inputId}"]`) ||
+                field.querySelector(`[id$="${inputId}"]`) ||
+                field.querySelector(`[id*="${idPart}"]`);
             if (input) return input;
         }
 
         return null;
+    }
+
+    // Method to refresh all counters (useful for debugging or manual refresh)
+    refreshAllCounters() {
+        this.counters.forEach((counter) => counter.updateCounter());
     }
 
     // Cleanup method for destroying manager
@@ -174,6 +203,8 @@ class SoftLimitManager {
         // Watch for dynamically added content
         const observer = new MutationObserver((mutations) => {
             let shouldCheck = false;
+            let hasNewFields = false;
+
             mutations.forEach((mutation) => {
                 if (
                     mutation.type === "childList" &&
@@ -181,6 +212,7 @@ class SoftLimitManager {
                 ) {
                     mutation.addedNodes.forEach((node) => {
                         if (node.nodeType === Node.ELEMENT_NODE) {
+                            // Check for new counter elements
                             if (
                                 node.classList?.contains(
                                     "soft-limit-counter"
@@ -189,16 +221,32 @@ class SoftLimitManager {
                             ) {
                                 shouldCheck = true;
                             }
+
+                            // Check for new input fields that might need counters
+                            if (
+                                node.classList?.contains("field") ||
+                                node.querySelector?.(".field") ||
+                                node.querySelector?.("input, textarea") ||
+                                node.classList?.contains("ck-editor") ||
+                                node.querySelector?.(".ck-editor")
+                            ) {
+                                hasNewFields = true;
+                            }
                         }
                     });
                 }
             });
 
-            if (shouldCheck) {
-                setTimeout(
-                    () => this.initializeCounters(),
-                    CONFIG.MUTATION_DELAY
-                );
+            if (shouldCheck || hasNewFields) {
+                // Use a longer delay for new fields to ensure they're fully initialized
+                const delay = hasNewFields
+                    ? CONFIG.RETRY_DELAY
+                    : CONFIG.MUTATION_DELAY;
+                setTimeout(() => {
+                    this.initializeCounters();
+                    // Also trigger an update on existing counters in case their content changed
+                    this.counters.forEach((counter) => counter.updateCounter());
+                }, delay);
             }
         });
 
