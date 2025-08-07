@@ -109,13 +109,16 @@ class SoftLimit extends Plugin
                 $fieldType,
                 Field::EVENT_DEFINE_INPUT_HTML,
                 function (DefineFieldHtmlEvent $event) {
+
                     /** @var Field $field */
                     $field = $event->sender;
 
+                    $instructions = $field->instructions;
+
                     // Check field instructions for soft limit marker
                     $softLimit = null;
-                    if ($field->instructions) {
-                        if (preg_match('/\[soft-limit:(\d+)\]/', $field->instructions, $matches)) {
+                    if ($instructions) {
+                        if (preg_match('/\[soft-limit:(\d+)\]/', $instructions, $matches)) {
                             $rawLimit = (int)$matches[1];
                             $softLimit = $this->validateLimit($rawLimit);
 
