@@ -145,23 +145,34 @@ class SoftLimitCounter {
 
         this.lastLength = 0;
         this.checkInterval = null;
+        this.debounceTimer = null;
 
         this.init();
+    }
+
+    // Debounce utility function
+    debounce(func, wait) {
+        return (...args) => {
+            clearTimeout(this.debounceTimer);
+            this.debounceTimer = setTimeout(() => func.apply(this, args), wait);
+        };
     }
 
     init() {
         this.updateCounter();
         this.setupEventListeners();
 
-        // Set up periodic check for rich text editors
+        // Set up debounced periodic check for rich text editors
         if (this.isRichText) {
-            this.checkInterval = setInterval(() => {
+            const debouncedCheck = this.debounce(() => {
                 const currentLength = this.getTextLength();
                 if (currentLength !== this.lastLength) {
                     this.updateCounter();
                     this.lastLength = currentLength;
                 }
-            }, 500);
+            }, 300); // 300ms debounce
+
+            this.checkInterval = setInterval(debouncedCheck, 500);
         }
     }
 
@@ -243,9 +254,10 @@ class SoftLimitCounter {
 
     setupPlainTextListeners() {
         const updateCounter = () => this.updateCounter();
+        const debouncedUpdate = this.debounce(updateCounter, 150);
 
-        this.input.addEventListener("input", updateCounter);
-        this.input.addEventListener("keyup", updateCounter);
+        this.input.addEventListener("input", debouncedUpdate);
+        this.input.addEventListener("keyup", debouncedUpdate);
         this.input.addEventListener("change", updateCounter);
         this.input.addEventListener("paste", () =>
             setTimeout(updateCounter, 10)
@@ -254,6 +266,7 @@ class SoftLimitCounter {
 
     setupRichTextListeners() {
         const updateCounter = () => this.updateCounter();
+        const debouncedUpdate = this.debounce(updateCounter, 200);
 
         // CKEditor 5 (craft\ckeditor\Field)
         if (this.fieldClass === "craft\\ckeditor\\Field") {
@@ -261,14 +274,18 @@ class SoftLimitCounter {
                 ".ck-editor__editable"
             );
             if (editableElement) {
-                editableElement.addEventListener("input", updateCounter);
-                editableElement.addEventListener("keyup", updateCounter);
+                editableElement.addEventListener("input", debouncedUpdate);
+                editableElement.addEventListener("keyup", debouncedUpdate);
                 editableElement.addEventListener("paste", () =>
                     setTimeout(updateCounter, 50)
                 );
                 editableElement.addEventListener("blur", updateCounter);
 
                 // Set up mutation observer for content changes
+                const debouncedMutationUpdate = this.debounce(
+                    updateCounter,
+                    100
+                );
                 const contentObserver = new MutationObserver((mutations) => {
                     let shouldUpdate = false;
                     mutations.forEach((mutation) => {
@@ -280,7 +297,7 @@ class SoftLimitCounter {
                         }
                     });
                     if (shouldUpdate) {
-                        setTimeout(updateCounter, 10);
+                        debouncedMutationUpdate();
                     }
                 });
 
@@ -291,7 +308,7 @@ class SoftLimitCounter {
                 });
 
                 // Try to find the CKEditor instance for more advanced events
-                this.setupCKEditor5Instance(editableElement, updateCounter);
+                this.setupCKEditor5Instance(editableElement, debouncedUpdate);
             }
         }
         // CKEditor 4 events
@@ -301,7 +318,7 @@ class SoftLimitCounter {
                 CKEDITOR.instances[this.input.name];
             if (ckInstance) {
                 ckInstance.on("change", updateCounter);
-                ckInstance.on("key", () => setTimeout(updateCounter, 10));
+                ckInstance.on("key", debouncedUpdate);
                 ckInstance.on("paste", () => setTimeout(updateCounter, 50));
             }
         }
@@ -312,7 +329,9 @@ class SoftLimitCounter {
         ) {
             const redactorInstance = $(this.input).data("redactor");
             if (redactorInstance) {
-                redactorInstance.core.editor().on("keyup input", updateCounter);
+                redactorInstance.core
+                    .editor()
+                    .on("keyup input", debouncedUpdate);
                 redactorInstance.core
                     .editor()
                     .on("paste", () => setTimeout(updateCounter, 50));
@@ -320,23 +339,21 @@ class SoftLimitCounter {
         }
 
         // Fallback events for rich text
-        this.input.addEventListener("input", updateCounter);
-        this.input.addEventListener("keyup", updateCounter);
+        this.input.addEventListener("input", debouncedUpdate);
+        this.input.addEventListener("keyup", debouncedUpdate);
         this.input.addEventListener("change", updateCounter);
         this.input.addEventListener("paste", () =>
             setTimeout(updateCounter, 50)
         );
     }
 
-    setupCKEditor5Instance(editableElement, updateCounter) {
+    setupCKEditor5Instance(editableElement, debouncedUpdate) {
         const checkForInstance = () => {
             if (editableElement.ckeditorInstance) {
                 const editor = editableElement.ckeditorInstance;
                 try {
-                    editor.model.document.on("change:data", updateCounter);
-                    editor.editing.view.document.on("keyup", () =>
-                        setTimeout(updateCounter, 10)
-                    );
+                    editor.model.document.on("change:data", debouncedUpdate);
+                    editor.editing.view.document.on("keyup", debouncedUpdate);
                 } catch (e) {
                     // Silently handle any CKEditor API errors
                     console.warn(
@@ -354,6 +371,9 @@ class SoftLimitCounter {
     destroy() {
         if (this.checkInterval) {
             clearInterval(this.checkInterval);
+        }
+        if (this.debounceTimer) {
+            clearTimeout(this.debounceTimer);
         }
     }
 }
