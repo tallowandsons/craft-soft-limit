@@ -91,11 +91,15 @@ class SoftLimit extends Plugin
 
     private function registerFieldEvents()
     {
-
         // Add input HTML modifications to supported field types
         $fieldTypes = [
-            PlainText::class
+            PlainText::class,
         ];
+
+        // Add CKEditor if it exists
+        if (class_exists('craft\\ckeditor\\Field')) {
+            $fieldTypes[] = 'craft\\ckeditor\\Field';
+        }
 
         foreach ($fieldTypes as $fieldType) {
             // Hook into input HTML generation
@@ -103,7 +107,6 @@ class SoftLimit extends Plugin
                 $fieldType,
                 Field::EVENT_DEFINE_INPUT_HTML,
                 function (DefineFieldHtmlEvent $event) {
-
                     /** @var Field $field */
                     $field = $event->sender;
 
@@ -122,21 +125,18 @@ class SoftLimit extends Plugin
                     if ($softLimit && $softLimit > 0) {
                         $view = Craft::$app->getView();
                         $inputId = $view->namespaceInputId($field->handle);
-                        // $fieldClass = get_class($field);
-                        // $isRichText = in_array($fieldClass, ['craft\\fields\\Redactor', 'craft\\fields\\CKEditor', 'craft\\ckeditor\\Field']);
+                        $fieldClass = get_class($field);
+                        $isRichText = in_array($fieldClass, ['craft\\fields\\Redactor', 'craft\\fields\\CKEditor', 'craft\\ckeditor\\Field']);
 
-                        // Add the counter HTML
-                        $counterHtml = '<div class="soft-limit-counter" data-input="' . $inputId . '" data-limit="' . $softLimit . '">0/' . $softLimit . '</div>';
+                        // Add the counter HTML with all necessary data attributes
+                        $counterHtml = '<div class="soft-limit-counter" ' .
+                            'data-input="' . htmlspecialchars($inputId) . '" ' .
+                            'data-limit="' . $softLimit . '" ' .
+                            'data-rich-text="' . ($isRichText ? '1' : '0') . '" ' .
+                            'data-field-class="' . htmlspecialchars($fieldClass) . '">' .
+                            '0/' . $softLimit . '</div>';
+
                         $event->html .= $counterHtml;
-
-                        // Register JavaScript for field initialization
-                        $js = "(function() { console.log('Soft Limit initialized for field: " . $field->handle . "'); })();";
-
-                        $view->registerJs($js);
-                    } else {
-                        $view = Craft::$app->getView();
-                        $js = "(function() { console.log('Soft Limit not initialized for field: " . $field->handle . "'); })();";
-                        $view->registerJs($js);
                     }
                 }
             );
