@@ -114,7 +114,13 @@ class SoftLimit extends Plugin
                     $softLimit = null;
                     if ($field->instructions) {
                         if (preg_match('/\[soft-limit:(\d+)\]/', $field->instructions, $matches)) {
-                            $softLimit = (int)$matches[1];
+                            $rawLimit = (int)$matches[1];
+                            $softLimit = $this->validateLimit($rawLimit);
+
+                            if ($softLimit === null) {
+                                Craft::warning("Soft Limit: Invalid limit '{$rawLimit}' for field '{$field->handle}'. Skipping.", __METHOD__);
+                                return;
+                            }
 
                             // Clean the instructions on the server side
                             $field->instructions = preg_replace('/\s*\[soft-limit:\d+\]\s*/', ' ', $field->instructions);
@@ -141,5 +147,27 @@ class SoftLimit extends Plugin
                 }
             );
         }
+    }
+
+    /**
+     * Validate and sanitize the soft limit value
+     *
+     * @param int $rawLimit
+     * @return int|null Returns validated limit or null if invalid
+     */
+    private function validateLimit(int $rawLimit): ?int
+    {
+        // Check minimum limit (at least 1 character)
+        if ($rawLimit < 1) {
+            return null;
+        }
+
+        // Check maximum limit (prevent performance issues and reasonable limits)
+        if ($rawLimit > 100000) {
+            Craft::warning("Soft Limit: Limit {$rawLimit} is too large. Using maximum of 100,000.", __METHOD__);
+            return 100000;
+        }
+
+        return $rawLimit;
     }
 }

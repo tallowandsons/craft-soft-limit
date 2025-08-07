@@ -37,9 +37,18 @@ class SoftLimitManager {
 
     initializeCounter(counterElement) {
         const inputId = counterElement.dataset.input;
-        const limit = parseInt(counterElement.dataset.limit);
+        const rawLimit = counterElement.dataset.limit;
         const isRichText = counterElement.dataset.richText === "1";
         const fieldClass = counterElement.dataset.fieldClass;
+
+        // Validate and sanitize the limit
+        const limit = this.validateLimit(rawLimit);
+        if (limit === null) {
+            console.warn(
+                `Soft Limit: Invalid limit "${rawLimit}" for field ${inputId}. Skipping initialization.`
+            );
+            return;
+        }
 
         // Find the input element
         const input = this.findInputElement(inputId);
@@ -65,6 +74,59 @@ class SoftLimitManager {
         });
 
         this.counters.set(inputId, counter);
+    }
+
+    validateLimit(rawLimit) {
+        // Convert to number
+        const limit = parseInt(rawLimit, 10);
+
+        // Check if it's a valid number
+        if (isNaN(limit)) {
+            return null;
+        }
+
+        // Check minimum limit (at least 1 character)
+        if (limit < 1) {
+            return null;
+        }
+
+        // Check maximum limit (prevent performance issues)
+        if (limit > 100000) {
+            console.warn(
+                `Soft Limit: Limit ${limit} is too large. Using maximum of 100,000.`
+            );
+            return 100000;
+        }
+
+        return limit;
+    }
+
+    /**
+     * Basic HTML sanitization to prevent XSS when counting characters
+     * @param {string} html
+     * @returns {string}
+     */
+    sanitizeHtml(html) {
+        if (!html || typeof html !== "string") {
+            return "";
+        }
+
+        // Remove script tags and their content
+        let sanitized = html.replace(
+            /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
+            ""
+        );
+
+        // Remove dangerous event handlers
+        sanitized = sanitized.replace(/\s*on\w+\s*=\s*["'][^"']*["']/gi, "");
+
+        // Remove javascript: URLs
+        sanitized = sanitized.replace(
+            /href\s*=\s*["']javascript:[^"']*["']/gi,
+            ""
+        );
+
+        return sanitized;
     }
 
     findInputElement(inputId) {
@@ -219,7 +281,9 @@ class SoftLimitCounter {
 
             // Strip HTML tags for character count
             const tempDiv = document.createElement("div");
-            tempDiv.innerHTML = content;
+            // Use textContent to safely set content, then get text length
+            tempDiv.textContent = ""; // Clear any content first
+            tempDiv.innerHTML = window.softLimitManager.sanitizeHtml(content);
             return (tempDiv.textContent || tempDiv.innerText || "").length;
         } else {
             return (this.input.value || "").length;
