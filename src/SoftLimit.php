@@ -3,9 +3,12 @@
 namespace tallowandsons\softlimit;
 
 use Craft;
+use craft\base\Field;
 use craft\base\Model;
 use craft\base\Plugin;
+use craft\events\DefineFieldHtmlEvent;
 use craft\events\TemplateEvent;
+use craft\fields\PlainText;
 use craft\web\View;
 use tallowandsons\softlimit\models\Settings;
 use tallowandsons\softlimit\web\assets\cp\CpAsset;
@@ -65,6 +68,8 @@ class SoftLimit extends Plugin
     {
         // Register event handlers here ...
         // (see https://craftcms.com/docs/5.x/extend/events.html to get started)
+
+        $this->registerFieldEvents();
     }
 
     /**
@@ -82,5 +87,59 @@ class SoftLimit extends Plugin
                 }
             }
         );
+    }
+
+    private function registerFieldEvents()
+    {
+
+        // Add input HTML modifications to supported field types
+        $fieldTypes = [
+            PlainText::class
+        ];
+
+        foreach ($fieldTypes as $fieldType) {
+            // Hook into input HTML generation
+            Event::on(
+                $fieldType,
+                Field::EVENT_DEFINE_INPUT_HTML,
+                function (DefineFieldHtmlEvent $event) {
+
+                    /** @var Field $field */
+                    $field = $event->sender;
+
+                    // Check field instructions for soft limit marker
+                    $softLimit = null;
+                    if ($field->instructions) {
+                        if (preg_match('/\[soft-limit:(\d+)\]/', $field->instructions, $matches)) {
+                            $softLimit = (int)$matches[1];
+
+                            // Clean the instructions on the server side
+                            $field->instructions = preg_replace('/\s*\[soft-limit:\d+\]\s*/', ' ', $field->instructions);
+                            $field->instructions = trim(preg_replace('/\s+/', ' ', $field->instructions));
+                        }
+                    }
+
+                    if ($softLimit && $softLimit > 0) {
+                        $view = Craft::$app->getView();
+                        $inputId = $view->namespaceInputId($field->handle);
+                        // $fieldClass = get_class($field);
+                        // $isRichText = in_array($fieldClass, ['craft\\fields\\Redactor', 'craft\\fields\\CKEditor', 'craft\\ckeditor\\Field']);
+
+                        // Add the counter HTML
+                        $counterHtml = '<div class="soft-limit-counter" data-input="' . $inputId . '" data-limit="' . $softLimit . '">0/' . $softLimit . '</div>';
+                        $event->html .= $counterHtml;
+
+                        // Register JavaScript for field initialization
+                        $js = "(function() { console.log('Soft Limit initialized for field: " . $field->handle . "'); })();";
+
+                        $view->registerJs($js);
+                    } else {
+                        $view = Craft::$app->getView();
+                        $js = "(function() { console.log('Soft Limit not initialized for field: " . $field->handle . "'); })();";
+                        $view->registerJs($js);
+                    }
+                }
+            );
+        }
     }
 }
