@@ -1,0 +1,12 @@
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- Simple text lines -->
+  <line x1="20" y1="30" x2="80" y2="30" stroke="#64748b" stroke-width="3" stroke-linecap="round"/>
+  <line x1="20" y1="42" x2="70" y2="42" stroke="#64748b" stroke-width="3" stroke-linecap="round"/>
+  <line x1="20" y1="54" x2="75" y2="54" stroke="#64748b" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- Soft limit line (dashed) -->
+  <line x1="20" y1="70" x2="80" y2="70" stroke="#3b82f6" stroke-width="4" stroke-linecap="round" stroke-dasharray="6,6"/>
+  
+  <!-- Simple counter text -->
+  <text x="50" y="88" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="600" fill="#64748b">123/150</text>
+</svg>
