@@ -206,7 +206,6 @@ class SoftLimitCounter {
         this.fieldContainer = options.fieldContainer;
 
         this.lastLength = 0;
-        this.checkInterval = null;
         this.debounceTimer = null;
 
         this.init();
@@ -223,19 +222,6 @@ class SoftLimitCounter {
     init() {
         this.updateCounter();
         this.setupEventListeners();
-
-        // Set up debounced periodic check for rich text editors
-        if (this.isRichText) {
-            const debouncedCheck = this.debounce(() => {
-                const currentLength = this.getTextLength();
-                if (currentLength !== this.lastLength) {
-                    this.updateCounter();
-                    this.lastLength = currentLength;
-                }
-            }, 300); // 300ms debounce
-
-            this.checkInterval = setInterval(debouncedCheck, 500);
-        }
     }
 
     getTextLength() {
@@ -318,7 +304,7 @@ class SoftLimitCounter {
 
     setupPlainTextListeners() {
         const updateCounter = () => this.updateCounter();
-        const debouncedUpdate = this.debounce(updateCounter, 150);
+        const debouncedUpdate = this.debounce(updateCounter, 50);
 
         this.input.addEventListener("input", debouncedUpdate);
         this.input.addEventListener("keyup", debouncedUpdate);
@@ -330,7 +316,7 @@ class SoftLimitCounter {
 
     setupRichTextListeners() {
         const updateCounter = () => this.updateCounter();
-        const debouncedUpdate = this.debounce(updateCounter, 200);
+        const debouncedUpdate = this.debounce(updateCounter, 50);
 
         // CKEditor 5 (craft\ckeditor\Field)
         if (this.fieldClass === "craft\\ckeditor\\Field") {
@@ -433,9 +419,6 @@ class SoftLimitCounter {
     }
 
     destroy() {
-        if (this.checkInterval) {
-            clearInterval(this.checkInterval);
-        }
         if (this.debounceTimer) {
             clearTimeout(this.debounceTimer);
         }
