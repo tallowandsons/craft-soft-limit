@@ -3,9 +3,21 @@
  * Handles character counting for text fields with soft limits
  */
 
+// Configuration constants
+const CONFIG = {
+    RETRY_DELAY: 500,
+    MUTATION_DELAY: 100,
+    DEBOUNCE_FAST: 50,
+    DEBOUNCE_MUTATION: 100,
+    PASTE_DELAY: 50,
+    CKINSTANCE_CHECK_DELAY: 100,
+    MAX_LIMIT: 100000,
+};
+
 class SoftLimitManager {
     constructor() {
         this.counters = new Map();
+        this.retryTimers = new Set();
         this.init();
     }
 
@@ -50,20 +62,21 @@ class SoftLimitManager {
             return;
         }
 
-        // Find the input element
+        // Find the input element with improved error handling
         const input = this.findInputElement(inputId);
         if (!input) {
-            // Retry after a short delay
-            setTimeout(() => this.initializeCounter(counterElement), 500);
+            // Retry with timeout tracking
+            const retryTimer = setTimeout(() => {
+                this.retryTimers.delete(retryTimer);
+                this.initializeCounter(counterElement);
+            }, CONFIG.RETRY_DELAY);
+            this.retryTimers.add(retryTimer);
             return;
         }
 
         // Find the field container
         const fieldContainer =
             input.closest(".field") || counterElement.closest(".field");
-
-        // Clean field instructions by removing the soft-limit marker
-        this.cleanFieldInstructions(fieldContainer);
 
         // Create counter instance
         const counter = new SoftLimitCounter(input, counterElement, {
@@ -91,11 +104,11 @@ class SoftLimitManager {
         }
 
         // Check maximum limit (prevent performance issues)
-        if (limit > 100000) {
+        if (limit > CONFIG.MAX_LIMIT) {
             console.warn(
-                `Soft Limit: Limit ${limit} is too large. Using maximum of 100,000.`
+                `Soft Limit: Limit ${limit} is too large. Using maximum of ${CONFIG.MAX_LIMIT}.`
             );
-            return 100000;
+            return CONFIG.MAX_LIMIT;
         }
 
         return limit;
@@ -130,34 +143,31 @@ class SoftLimitManager {
     }
 
     findInputElement(inputId) {
-        return (
-            document.getElementById(inputId) ||
-            document.querySelector('[name*="' + inputId.split("-").pop() + '"]')
-        );
+        // Try direct ID lookup first (fastest)
+        const directMatch = document.getElementById(inputId);
+        if (directMatch) return directMatch;
+
+        // More targeted fallback using field containers
+        const fields = document.querySelectorAll(".field");
+        for (const field of fields) {
+            const input =
+                field.querySelector(`[name$="${inputId}"]`) ||
+                field.querySelector(`[name*="${inputId.split("-").pop()}"]`);
+            if (input) return input;
+        }
+
+        return null;
     }
 
-    cleanFieldInstructions(fieldContainer) {
-        if (!fieldContainer) return;
+    // Cleanup method for destroying manager
+    destroy() {
+        // Cancel any pending retry timers
+        this.retryTimers.forEach((timer) => clearTimeout(timer));
+        this.retryTimers.clear();
 
-        const instructionsElements = fieldContainer.querySelectorAll(
-            ".instructions p, .instructions, .field-instructions p, .field-instructions"
-        );
-
-        instructionsElements.forEach((elem) => {
-            const text = elem.innerHTML || elem.textContent || "";
-            if (text.match(/\[soft-limit:\s*\d+\s*\]/i)) {
-                const cleaned = text
-                    .replace(/\s*\[soft-limit:\s*\d+\s*\]\s*/gi, " ")
-                    .replace(/\s+/g, " ")
-                    .trim();
-
-                if (elem.innerHTML !== undefined) {
-                    elem.innerHTML = cleaned;
-                } else {
-                    elem.textContent = cleaned;
-                }
-            }
-        });
+        // Destroy all counter instances
+        this.counters.forEach((counter) => counter.destroy());
+        this.counters.clear();
     }
 
     observeNewCounters() {
@@ -185,7 +195,10 @@ class SoftLimitManager {
             });
 
             if (shouldCheck) {
-                setTimeout(() => this.initializeCounters(), 100);
+                setTimeout(
+                    () => this.initializeCounters(),
+                    CONFIG.MUTATION_DELAY
+                );
             }
         });
 
@@ -205,7 +218,30 @@ class SoftLimitCounter {
         this.fieldClass = options.fieldClass;
         this.fieldContainer = options.fieldContainer;
 
+        // Track resources for cleanup
+        this.observers = [];
+        this.eventListeners = [];
+        this.timers = [];
+
         this.init();
+    }
+
+    // Helper to track event listeners for cleanup
+    addEventListenerTracked(element, event, handler, options) {
+        element.addEventListener(event, handler, options);
+        this.eventListeners.push({ element, event, handler, options });
+    }
+
+    // Helper to track observers for cleanup
+    addObserverTracked(observer) {
+        this.observers.push(observer);
+        return observer;
+    }
+
+    // Helper to track timers for cleanup
+    addTimerTracked(timer) {
+        this.timers.push(timer);
+        return timer;
     }
 
     // Debounce utility function
@@ -302,19 +338,25 @@ class SoftLimitCounter {
 
     setupPlainTextListeners() {
         const updateCounter = () => this.updateCounter();
-        const debouncedUpdate = this.debounce(updateCounter, 50);
+        const debouncedUpdate = this.debounce(
+            updateCounter,
+            CONFIG.DEBOUNCE_FAST
+        );
 
-        this.input.addEventListener("input", debouncedUpdate);
-        this.input.addEventListener("keyup", debouncedUpdate);
-        this.input.addEventListener("change", updateCounter);
-        this.input.addEventListener("paste", () =>
-            setTimeout(updateCounter, 10)
+        this.addEventListenerTracked(this.input, "input", debouncedUpdate);
+        this.addEventListenerTracked(this.input, "keyup", debouncedUpdate);
+        this.addEventListenerTracked(this.input, "change", updateCounter);
+        this.addEventListenerTracked(this.input, "paste", () =>
+            this.addTimerTracked(setTimeout(updateCounter, 10))
         );
     }
 
     setupRichTextListeners() {
         const updateCounter = () => this.updateCounter();
-        const debouncedUpdate = this.debounce(updateCounter, 50);
+        const debouncedUpdate = this.debounce(
+            updateCounter,
+            CONFIG.DEBOUNCE_FAST
+        );
 
         // CKEditor 5 (craft\ckeditor\Field)
         if (this.fieldClass === "craft\\ckeditor\\Field") {
@@ -322,32 +364,48 @@ class SoftLimitCounter {
                 ".ck-editor__editable"
             );
             if (editableElement) {
-                editableElement.addEventListener("input", debouncedUpdate);
-                editableElement.addEventListener("keyup", debouncedUpdate);
-                editableElement.addEventListener("paste", () =>
-                    setTimeout(updateCounter, 50)
+                this.addEventListenerTracked(
+                    editableElement,
+                    "input",
+                    debouncedUpdate
                 );
-                editableElement.addEventListener("blur", updateCounter);
+                this.addEventListenerTracked(
+                    editableElement,
+                    "keyup",
+                    debouncedUpdate
+                );
+                this.addEventListenerTracked(editableElement, "paste", () =>
+                    this.addTimerTracked(
+                        setTimeout(updateCounter, CONFIG.PASTE_DELAY)
+                    )
+                );
+                this.addEventListenerTracked(
+                    editableElement,
+                    "blur",
+                    updateCounter
+                );
 
                 // Set up mutation observer for content changes
                 const debouncedMutationUpdate = this.debounce(
                     updateCounter,
-                    100
+                    CONFIG.DEBOUNCE_MUTATION
                 );
-                const contentObserver = new MutationObserver((mutations) => {
-                    let shouldUpdate = false;
-                    mutations.forEach((mutation) => {
-                        if (
-                            mutation.type === "childList" ||
-                            mutation.type === "characterData"
-                        ) {
-                            shouldUpdate = true;
+                const contentObserver = this.addObserverTracked(
+                    new MutationObserver((mutations) => {
+                        let shouldUpdate = false;
+                        mutations.forEach((mutation) => {
+                            if (
+                                mutation.type === "childList" ||
+                                mutation.type === "characterData"
+                            ) {
+                                shouldUpdate = true;
+                            }
+                        });
+                        if (shouldUpdate) {
+                            debouncedMutationUpdate();
                         }
-                    });
-                    if (shouldUpdate) {
-                        debouncedMutationUpdate();
-                    }
-                });
+                    })
+                );
 
                 contentObserver.observe(editableElement, {
                     childList: true,
@@ -367,7 +425,11 @@ class SoftLimitCounter {
             if (ckInstance) {
                 ckInstance.on("change", updateCounter);
                 ckInstance.on("key", debouncedUpdate);
-                ckInstance.on("paste", () => setTimeout(updateCounter, 50));
+                ckInstance.on("paste", () =>
+                    this.addTimerTracked(
+                        setTimeout(updateCounter, CONFIG.PASTE_DELAY)
+                    )
+                );
             }
         }
         // Redactor events
@@ -375,14 +437,22 @@ class SoftLimitCounter {
             typeof $ !== "undefined" &&
             this.input.classList.contains("redactor")
         ) {
-            const redactorInstance = $(this.input).data("redactor");
-            if (redactorInstance) {
-                redactorInstance.core
-                    .editor()
-                    .on("keyup input", debouncedUpdate);
-                redactorInstance.core
-                    .editor()
-                    .on("paste", () => setTimeout(updateCounter, 50));
+            try {
+                const redactorInstance = $(this.input).data("redactor");
+                if (redactorInstance) {
+                    redactorInstance.core
+                        .editor()
+                        .on("keyup input", debouncedUpdate);
+                    redactorInstance.core
+                        .editor()
+                        .on("paste", () =>
+                            this.addTimerTracked(
+                                setTimeout(updateCounter, CONFIG.PASTE_DELAY)
+                            )
+                        );
+                }
+            } catch (e) {
+                console.warn("Soft Limit: Error setting up Redactor events", e);
             }
         }
     }
@@ -402,15 +472,28 @@ class SoftLimitCounter {
                     );
                 }
             } else {
-                setTimeout(checkForInstance, 100);
+                this.addTimerTracked(
+                    setTimeout(checkForInstance, CONFIG.CKINSTANCE_CHECK_DELAY)
+                );
             }
         };
         checkForInstance();
     }
 
     destroy() {
-        // Individual debounce functions manage their own timeouts
-        // No cleanup needed here
+        // Clean up event listeners
+        this.eventListeners.forEach(({ element, event, handler, options }) => {
+            element.removeEventListener(event, handler, options);
+        });
+        this.eventListeners = [];
+
+        // Clean up observers
+        this.observers.forEach((observer) => observer.disconnect());
+        this.observers = [];
+
+        // Clean up timers
+        this.timers.forEach((timer) => clearTimeout(timer));
+        this.timers = [];
     }
 }
 
