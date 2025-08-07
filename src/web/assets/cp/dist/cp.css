@@ -1,0 +1,35 @@
+/**
+ * Soft Limit Plugin Styles
+ * Character counter styling for text field limits
+ */
+
+.soft-limit-counter {
+    margin-top: 5px;
+    font-size: 12px;
+    color: #8f98a3;
+    text-align: right;
+    font-family: inherit;
+    transition: color 0.2s ease;
+}
+
+.soft-limit-counter.soft-limit-warning {
+    color: #f39c12;
+    font-weight: 500;
+}
+
+.soft-limit-counter.soft-limit-exceeded {
+    color: #e74c3c;
+    font-weight: 600;
+}
+
+/* Ensure proper spacing in field containers */
+.field .soft-limit-counter {
+    margin-top: 8px;
+    margin-bottom: 0;
+}
+
+/* Special handling for rich text editors */
+.ck-editor + .soft-limit-counter,
+.redactor-box + .soft-limit-counter {
+    margin-top: 8px;
+}
