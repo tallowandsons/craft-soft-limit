@@ -5,7 +5,11 @@ namespace tallowandsons\softlimit;
 use Craft;
 use craft\base\Model;
 use craft\base\Plugin;
+use craft\events\TemplateEvent;
+use craft\web\View;
 use tallowandsons\softlimit\models\Settings;
+use tallowandsons\softlimit\web\assets\cp\CpAsset;
+use yii\base\Event;
 
 /**
  * Soft Limit plugin
@@ -35,10 +39,11 @@ class SoftLimit extends Plugin
         parent::init();
 
         $this->attachEventHandlers();
+        $this->registerAssetBundles();
 
         // Any code that creates an element query or loads Twig should be deferred until
         // after Craft is fully initialized, to avoid conflicts with other plugins/modules
-        Craft::$app->onInit(function() {
+        Craft::$app->onInit(function () {
             // ...
         });
     }
@@ -60,5 +65,22 @@ class SoftLimit extends Plugin
     {
         // Register event handlers here ...
         // (see https://craftcms.com/docs/5.x/extend/events.html to get started)
+    }
+
+    /**
+     * Registers asset bundles
+     */
+    private function registerAssetBundles(): void
+    {
+        // Load CSS before template is rendered
+        Event::on(
+            View::class,
+            View::EVENT_BEFORE_RENDER_TEMPLATE,
+            function (TemplateEvent $event) {
+                if (Craft::$app->getRequest()->getIsCpRequest()) {
+                    Craft::$app->view->registerAssetBundle(CpAsset::class);
+                }
+            }
+        );
     }
 }
