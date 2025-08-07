@@ -205,17 +205,15 @@ class SoftLimitCounter {
         this.fieldClass = options.fieldClass;
         this.fieldContainer = options.fieldContainer;
 
-        this.lastLength = 0;
-        this.debounceTimer = null;
-
         this.init();
     }
 
     // Debounce utility function
     debounce(func, wait) {
+        let timeout;
         return (...args) => {
-            clearTimeout(this.debounceTimer);
-            this.debounceTimer = setTimeout(() => func.apply(this, args), wait);
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
         };
     }
 
@@ -387,14 +385,6 @@ class SoftLimitCounter {
                     .on("paste", () => setTimeout(updateCounter, 50));
             }
         }
-
-        // Fallback events for rich text
-        this.input.addEventListener("input", debouncedUpdate);
-        this.input.addEventListener("keyup", debouncedUpdate);
-        this.input.addEventListener("change", updateCounter);
-        this.input.addEventListener("paste", () =>
-            setTimeout(updateCounter, 50)
-        );
     }
 
     setupCKEditor5Instance(editableElement, debouncedUpdate) {
@@ -419,9 +409,8 @@ class SoftLimitCounter {
     }
 
     destroy() {
-        if (this.debounceTimer) {
-            clearTimeout(this.debounceTimer);
-        }
+        // Individual debounce functions manage their own timeouts
+        // No cleanup needed here
     }
 }
 
