@@ -116,7 +116,9 @@ class SoftLimit extends Plugin
     private function registerFieldEvents()
     {
         foreach ($this->getAllowedFieldTypes() as $fieldType) {
-            // Hook into input HTML generation
+
+            // when the field input HTML is defined,
+            // inject the soft limit counter based on the field's instructions
             Event::on(
                 $fieldType,
                 Field::EVENT_DEFINE_INPUT_HTML,
@@ -125,21 +127,9 @@ class SoftLimit extends Plugin
                     /** @var Field $field */
                     $field = $event->sender;
 
-                    $instructions = $field->instructions;
-
                     // Check field instructions for soft limit marker
-                    $softLimit = null;
-                    if ($instructions) {
-                        if (preg_match('/\[soft-limit:(\d+)\]/', $instructions, $matches)) {
-                            $rawLimit = (int)$matches[1];
-                            $softLimit = $this->validateLimit($rawLimit);
-
-                            if ($softLimit === null) {
-                                Craft::warning("Soft Limit: Invalid limit '{$rawLimit}' for field '{$field->handle}'. Skipping.", __METHOD__);
-                                return;
-                            }
-                        }
-                    }
+                    // (limit is always validated at this point)
+                    $softLimit = $this->getSoftLimit($field);
 
                     if ($softLimit && $softLimit > 0) {
                         $view = Craft::$app->getView();
@@ -180,7 +170,8 @@ class SoftLimit extends Plugin
     }
 
     /**
-     * Registers field validation for soft limit instructions
+     * When field configuration is saved, validate soft limit instructions
+     * This ensures that the instructions are valid and only contain one soft limit marker.
      */
     private function registerFieldValidation(): void
     {
@@ -189,6 +180,7 @@ class SoftLimit extends Plugin
                 $fieldType,
                 SavableComponent::EVENT_BEFORE_SAVE,
                 function (ModelEvent $event) {
+
                     /** @var Field $field */
                     $field = $event->sender;
 
@@ -258,6 +250,35 @@ class SoftLimit extends Plugin
     }
 
     /**
+     * Extract and validate soft limit from field instructions
+     *
+     * @param Field $field The field to check
+     * @return int|null Returns the validated soft limit or null if none found or invalid
+     */
+    private function getSoftLimit(Field $field): ?int
+    {
+        $instructions = $this->getFieldInstructions($field);
+
+        if (!$instructions) {
+            return null;
+        }
+
+        if (preg_match('/\[soft-limit:(\d+)\]/', $instructions, $matches)) {
+            $rawLimit = (int)$matches[1];
+            $softLimit = $this->validateLimit($rawLimit);
+
+            if ($softLimit === null) {
+                Craft::warning("Soft Limit: Invalid limit '{$rawLimit}' for field '{$field->handle}'. Skipping.", __METHOD__);
+                return null;
+            }
+
+            return $softLimit;
+        }
+
+        return null;
+    }
+
+    /**
      * Validate and sanitize the soft limit value
      *
      * @param int $rawLimit
@@ -276,5 +297,26 @@ class SoftLimit extends Plugin
         }
 
         return $rawLimit;
+    }
+
+    /**
+     * Get the effective instructions for a field, considering layout overrides.
+     */
+    private function getFieldInstructions(Field $field): ?string
+    {
+        // in < Craft 5.5.0, $field->instructions does not take layout overrides into account,
+        // so we need to check for layout element overrides manually.
+
+        if (isset($field->layoutElement) && $field->layoutElement instanceof \craft\fieldlayoutelements\CustomField) {
+            $layoutElement = $field->layoutElement;
+
+            // If the layout element has custom instructions, use those
+            if ($layoutElement->instructions !== null) {
+                return $layoutElement->instructions;
+            }
+        }
+
+        // Otherwise, return the field's instructions directly
+        return $field->instructions ?? null;
     }
 }
