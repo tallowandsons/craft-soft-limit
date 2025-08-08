@@ -74,7 +74,6 @@ class SoftLimit extends Plugin
         // (see https://craftcms.com/docs/5.x/extend/events.html to get started)
 
         $this->registerFieldEvents();
-        $this->registerFieldValidation();
     }
 
     /**
@@ -128,7 +127,7 @@ class SoftLimit extends Plugin
                     $field = $event->sender;
 
                     // Check field instructions for soft limit marker
-                    // (limit is always validated at this point)
+                    // (limit is also validated at this point, and will be null if invalid)
                     $softLimit = $this->getSoftLimit($field);
 
                     if ($softLimit && $softLimit > 0) {
@@ -143,7 +142,8 @@ class SoftLimit extends Plugin
                             'data-field-class="' . htmlspecialchars($fieldClass) . '">' .
                             '0/' . $softLimit . '</div>';
 
-                        // Only inject the immediate script once per page load
+                        // inject a smidge of JavaScript to hide the "[soft-limit:x]" part of the instructions
+                        // only inject the immediate script once per page load
                         if (!self::$immediateScriptInjected) {
                             self::$immediateScriptInjected = true;
 
@@ -164,16 +164,9 @@ class SoftLimit extends Plugin
                     }
                 }
             );
-        }
-    }
 
-    /**
-     * When field configuration is saved, validate soft limit instructions
-     * This ensures that the instructions are valid and only contain one soft limit marker.
-     */
-    private function registerFieldValidation(): void
-    {
-        foreach ($this->getAllowedFieldTypes() as $fieldType) {
+            // When field configuration is saved, validate soft limit instructions
+            // and provide feedback to the user.
             Event::on(
                 $fieldType,
                 SavableComponent::EVENT_BEFORE_SAVE,
