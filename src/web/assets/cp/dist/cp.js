@@ -49,8 +49,10 @@ class SoftLimitManager {
     initializeCounter(counterElement) {
         const inputId = counterElement.dataset.input;
         const rawLimit = counterElement.dataset.limit;
-        const isRichText = counterElement.dataset.richText === "1";
         const fieldClass = counterElement.dataset.fieldClass;
+
+        // Determine if this is a rich text field from the field class
+        const isRichText = this.isRichTextField(fieldClass);
 
         // Validate and sanitize the limit
         const limit = this.validateLimit(rawLimit);
@@ -96,6 +98,20 @@ class SoftLimitManager {
 
         this.counters.set(inputId, counter);
         counterElement.dataset.initialized = "true";
+    }
+
+    /**
+     * Determine if a field class represents a rich text field
+     * @param {string} fieldClass - The field class name
+     * @returns {boolean} - True if it's a rich text field
+     */
+    isRichTextField(fieldClass) {
+        const richTextClasses = [
+            "craft\\fields\\Redactor",
+            "craft\\fields\\CKEditor",
+            "craft\\ckeditor\\Field",
+        ];
+        return richTextClasses.includes(fieldClass);
     }
 
     validateLimit(rawLimit) {

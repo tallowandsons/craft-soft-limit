@@ -135,13 +135,11 @@ class SoftLimit extends Plugin
                         $view = Craft::$app->getView();
                         $inputId = $view->namespaceInputId($field->handle);
                         $fieldClass = get_class($field);
-                        $isRichText = in_array($fieldClass, ['craft\\fields\\Redactor', 'craft\\fields\\CKEditor', 'craft\\ckeditor\\Field']);
 
                         // Add the counter HTML with all necessary data attributes
                         $counterHtml = '<div class="soft-limit-counter" ' .
                             'data-input="' . htmlspecialchars($inputId) . '" ' .
                             'data-limit="' . $softLimit . '" ' .
-                            'data-rich-text="' . ($isRichText ? '1' : '0') . '" ' .
                             'data-field-class="' . htmlspecialchars($fieldClass) . '">' .
                             '0/' . $softLimit . '</div>';
 
