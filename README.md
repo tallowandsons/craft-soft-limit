@@ -56,7 +56,7 @@ Provide a brief summary of this article for the homepage. [soft-limit:120]
 ## Requirements
 This plugin supports
 - Craft CMS 5.0.0 or later
-- Craft CMS 4.3.6 or later
+- Craft CMS 4.0.0 or later
 
 ## License
 
