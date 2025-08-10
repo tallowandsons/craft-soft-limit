@@ -28,7 +28,7 @@ use yii\base\Event;
 class SoftLimit extends Plugin
 {
     public string $schemaVersion = '1.0.0';
-    public bool $hasCpSettings = true;
+    public bool $hasCpSettings = false;
 
     private static bool $immediateScriptInjected = false;
 
