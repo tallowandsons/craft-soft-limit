@@ -1,12 +1,29 @@
 {
     "name": "tallowandsons/craft-soft-limit",
     "description": "Adds a soft character limit to text fields",
+    "keywords": [
+        "craft",
+        "cms",
+        "craftcms",
+        "craft-plugin",
+        "soft limit",
+        "character limit",
+        "text field",
+        "tallowandsons"
+    ],
     "type": "craft-plugin",
     "license": "proprietary",
+    "homepage": "https://github.com/tallowandsons/craft-soft-limit",
+    "authors": [
+        {
+            "name": "Tallow & Sons",
+            "homepage": "https://github.com/tallowandsons"
+        }
+    ],
     "support": {
         "issues": "https://github.com/tallowandsons/craft-soft-limit/issues?state=open",
         "source": "https://github.com/tallowandsons/craft-soft-limit",
-        "docs": "https://github.com/tallowandsons/craft-soft-limit",
+        "docs": "https://github.com/tallowandsons/craft-soft-limit/blob/master/README.md",
         "rss": "https://github.com/tallowandsons/craft-soft-limit/releases.atom"
     },
     "require": {
@@ -25,8 +42,9 @@
     "extra": {
         "handle": "soft-limit",
         "name": "Soft Limit",
-        "developer": "tallowandsons",
-        "documentationUrl": "https://github.com/tallowandsons/craft-soft-limit",
+        "developer": "Tallow & Sons",
+        "developerUrl": "https://github.com/tallowandsons",
+        "documentationUrl": "https://github.com/tallowandsons/craft-soft-limit#readme",
         "class": "tallowandsons\\softlimit\\SoftLimit"
     },
     "scripts": {
@@ -37,11 +55,13 @@
     "config": {
         "sort-packages": true,
         "platform": {
-            "php": "8.2"
+            "php": "8.0"
         },
         "allow-plugins": {
             "yiisoft/yii2-composer": true,
             "craftcms/plugin-installer": true
         }
-    }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
 }
