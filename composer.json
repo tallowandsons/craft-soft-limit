@@ -12,7 +12,6 @@
     "require": {
         "php": ">=8.0",
         "craftcms/cms": "^4.3.6|^5.0.0"
-    }
     },
     "require-dev": {
         "craftcms/ecs": "dev-main",
