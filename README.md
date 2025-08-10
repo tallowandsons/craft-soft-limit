@@ -40,7 +40,7 @@ For rich text fields, Soft Limit intelligently counts characters while handling 
 
 ### Product Descriptions
 ```
-Write a compelling product description that highlights key features and benefits. [soft-limit:300]
+Write a compelling product description that highlights key features. [soft-limit:300]
 ```
 
 ### Meta Descriptions
