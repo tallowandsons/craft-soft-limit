@@ -10,8 +10,8 @@
         "rss": "https://github.com/tallowandsons/craft-soft-limit/releases.atom"
     },
     "require": {
-        "php": ">=8.2",
-        "craftcms/cms": "^5.0.0"
+        "php": ">=8.0",
+        "craftcms/cms": "^4.11.0"
     },
     "require-dev": {
         "craftcms/ecs": "dev-main",

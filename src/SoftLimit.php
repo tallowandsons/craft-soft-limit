@@ -109,6 +109,11 @@ class SoftLimit extends Plugin
             $fieldTypes[] = 'craft\\ckeditor\\Field';
         }
 
+        // add Redactor if it exists
+        if (class_exists('craft\\redactor\\Field')) {
+            $fieldTypes[] = 'craft\\redactor\\Field';
+        }
+
         return $fieldTypes;
     }
 

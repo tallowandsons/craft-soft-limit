@@ -15,12 +15,18 @@ const CONFIG = {
 };
 
 class SoftLimitManager {
+    /**
+     * Creates a new SoftLimitManager instance and initializes counter tracking.
+     */
     constructor() {
         this.counters = new Map();
         this.retryTimers = new Set();
         this.init();
     }
 
+    /**
+     * Initializes the manager on DOM ready and sets up observers for dynamic content.
+     */
     init() {
         // Initialize on DOM ready
         if (document.readyState === "loading") {
@@ -35,6 +41,9 @@ class SoftLimitManager {
         this.observeNewCounters();
     }
 
+    /**
+     * Finds all soft limit counter elements in the DOM and initializes them.
+     */
     initializeCounters() {
         const counterElements = document.querySelectorAll(
             ".soft-limit-counter"
@@ -46,6 +55,9 @@ class SoftLimitManager {
         });
     }
 
+    /**
+     * Initializes a single counter element by creating its corresponding SoftLimitCounter instance.
+     */
     initializeCounter(counterElement) {
         const inputId = counterElement.dataset.input;
         const rawLimit = counterElement.dataset.limit;
@@ -101,19 +113,21 @@ class SoftLimitManager {
     }
 
     /**
-     * Determine if a field class represents a rich text field
+     * Determine if a field class represents a rich text field.
      * @param {string} fieldClass - The field class name
      * @returns {boolean} - True if it's a rich text field
      */
     isRichTextField(fieldClass) {
         const richTextClasses = [
-            "craft\\fields\\Redactor",
-            "craft\\fields\\CKEditor",
             "craft\\ckeditor\\Field",
+            "craft\\redactor\\Field",
         ];
         return richTextClasses.includes(fieldClass);
     }
 
+    /**
+     * Validates and sanitizes the character limit value, ensuring it's within acceptable bounds.
+     */
     validateLimit(rawLimit) {
         // Convert to number
         const limit = parseInt(rawLimit, 10);
@@ -140,7 +154,7 @@ class SoftLimitManager {
     }
 
     /**
-     * Basic HTML sanitization to prevent XSS when counting characters
+     * Basic HTML sanitization to prevent XSS when counting characters.
      * @param {string} html
      * @returns {string}
      */
@@ -167,6 +181,9 @@ class SoftLimitManager {
         return sanitized;
     }
 
+    /**
+     * Finds an input element by ID using multiple fallback strategies for dynamic field names.
+     */
     findInputElement(inputId) {
         // Try direct ID lookup first (fastest)
         const directMatch = document.getElementById(inputId);
@@ -199,11 +216,17 @@ class SoftLimitManager {
         return null;
     }
 
+    /**
+     * Manually refreshes all counter displays, useful for debugging or after content changes.
+     */
     // Method to refresh all counters (useful for debugging or manual refresh)
     refreshAllCounters() {
         this.counters.forEach((counter) => counter.updateCounter());
     }
 
+    /**
+     * Cleans up all counters and timers when the manager is destroyed.
+     */
     // Cleanup method for destroying manager
     destroy() {
         // Cancel any pending retry timers
@@ -215,6 +238,9 @@ class SoftLimitManager {
         this.counters.clear();
     }
 
+    /**
+     * Sets up a MutationObserver to detect dynamically added fields and counters.
+     */
     observeNewCounters() {
         // Watch for dynamically added content
         const observer = new MutationObserver((mutations) => {
@@ -244,7 +270,9 @@ class SoftLimitManager {
                                 node.querySelector?.(".field") ||
                                 node.querySelector?.("input, textarea") ||
                                 node.classList?.contains("ck-editor") ||
-                                node.querySelector?.(".ck-editor")
+                                node.querySelector?.(".ck-editor") ||
+                                node.classList?.contains("redactor") ||
+                                node.querySelector?.(".redactor")
                             ) {
                                 hasNewFields = true;
                             }
@@ -274,6 +302,9 @@ class SoftLimitManager {
 }
 
 class SoftLimitCounter {
+    /**
+     * Creates a counter instance and selects the appropriate handler based on field type.
+     */
     constructor(input, counterElement, options) {
         this.input = input;
         this.counterElement = counterElement;
@@ -282,32 +313,158 @@ class SoftLimitCounter {
         this.fieldClass = options.fieldClass;
         this.fieldContainer = options.fieldContainer;
 
-        // Track resources for cleanup
-        this.observers = [];
-        this.eventListeners = [];
-        this.timers = [];
+        // Create the appropriate handler
+        this.handler = this.createHandler();
 
         this.init();
     }
 
+    /**
+     * Factory method that creates the appropriate handler based on field class and editor type.
+     */
+    createHandler() {
+        if (this.isPlainTextField()) {
+            return new PlainTextHandler(this.input, this.counterElement, {
+                limit: this.limit,
+                fieldContainer: this.fieldContainer,
+            });
+        }
+
+        if (this.isCKEditor5Field()) {
+            return new CKEditor5Handler(this.input, this.counterElement, {
+                limit: this.limit,
+                fieldContainer: this.fieldContainer,
+            });
+        }
+
+        if (this.isCKEditor4Field()) {
+            return new CKEditor4Handler(this.input, this.counterElement, {
+                limit: this.limit,
+                fieldContainer: this.fieldContainer,
+            });
+        }
+
+        if (this.isRedactorField()) {
+            return new RedactorHandler(this.input, this.counterElement, {
+                limit: this.limit,
+                fieldClass: this.fieldClass,
+                fieldContainer: this.fieldContainer,
+            });
+        }
+
+        return new PlainTextHandler(this.input, this.counterElement, {
+            limit: this.limit,
+            fieldContainer: this.fieldContainer,
+        });
+    }
+
+    /**
+     * Checks if this is a plain text field (non-rich text).
+     */
+    isPlainTextField() {
+        return !this.isRichText;
+    }
+
+    /**
+     * Checks if this is a CKEditor 5 field.
+     */
+    isCKEditor5Field() {
+        return this.fieldClass === "craft\\ckeditor\\Field";
+    }
+
+    /**
+     * Checks if this is a CKEditor 4 field by detecting active instances.
+     */
+    isCKEditor4Field() {
+        if (typeof CKEDITOR === "undefined") {
+            return false;
+        }
+
+        const ckInstance =
+            CKEDITOR.instances[this.input.id] ||
+            CKEDITOR.instances[this.input.name];
+        return !!ckInstance;
+    }
+
+    /**
+     * Checks if this is a Redactor field.
+     */
+    isRedactorField() {
+        return (
+            this.fieldClass === "craft\\fields\\Redactor" ||
+            this.fieldClass === "craft\\redactor\\Field"
+        );
+    }
+
+    /**
+     * Initializes the counter by delegating to the appropriate handler.
+     */
+    init() {
+        this.handler.init();
+    }
+
+    /**
+     * Updates the counter display by delegating to the handler.
+     */
+    updateCounter() {
+        this.handler.updateCounter();
+    }
+
+    /**
+     * Cleans up resources by destroying the handler.
+     */
+    destroy() {
+        this.handler.destroy();
+    }
+}
+
+// Base handler class with common functionality
+class BaseHandler {
+    /**
+     * Base constructor that sets up common properties and resource tracking for cleanup.
+     */
+    constructor(input, counterElement, options) {
+        this.input = input;
+        this.counterElement = counterElement;
+        this.limit = options.limit;
+        this.fieldContainer = options.fieldContainer;
+
+        // Track resources for cleanup
+        this.observers = [];
+        this.eventListeners = [];
+        this.timers = [];
+    }
+
+    /**
+     * Adds an event listener and tracks it for cleanup.
+     */
     // Helper to track event listeners for cleanup
     addEventListenerTracked(element, event, handler, options) {
         element.addEventListener(event, handler, options);
         this.eventListeners.push({ element, event, handler, options });
     }
 
+    /**
+     * Adds a MutationObserver and tracks it for cleanup.
+     */
     // Helper to track observers for cleanup
     addObserverTracked(observer) {
         this.observers.push(observer);
         return observer;
     }
 
+    /**
+     * Adds a timer and tracks it for cleanup.
+     */
     // Helper to track timers for cleanup
     addTimerTracked(timer) {
         this.timers.push(timer);
         return timer;
     }
 
+    /**
+     * Creates a debounced version of a function to limit how often it can be called.
+     */
     // Debounce utility function
     debounce(func, wait) {
         let timeout;
@@ -317,63 +474,47 @@ class SoftLimitCounter {
         };
     }
 
-    init() {
-        this.updateCounter();
-        this.setupEventListeners();
-    }
-
-    getTextLength() {
-        if (this.isRichText) {
-            let content = "";
-
-            // For CKEditor 5 (craft\ckeditor\Field)
-            if (this.fieldClass === "craft\\ckeditor\\Field") {
-                const editableElement = this.fieldContainer?.querySelector(
-                    ".ck-editor__editable"
-                );
-                if (editableElement) {
-                    content = editableElement.innerHTML || "";
-                }
-            }
-
-            // Try CKEditor 4 instances
-            if (!content && typeof CKEDITOR !== "undefined") {
-                const ckInstance =
-                    CKEDITOR.instances[this.input.id] ||
-                    CKEDITOR.instances[this.input.name];
-                if (ckInstance) {
-                    content = ckInstance.getData();
-                }
-            }
-
-            // Try Redactor
-            if (
-                !content &&
-                typeof $ !== "undefined" &&
-                this.input.classList.contains("redactor")
-            ) {
-                const redactorInstance = $(this.input).data("redactor");
-                if (redactorInstance) {
-                    content = redactorInstance.code.get();
-                }
-            }
-
-            // Fallback to textarea value
-            if (!content) {
-                content = this.input.value || "";
-            }
-
-            // Strip HTML tags for character count
-            const tempDiv = document.createElement("div");
-            // Use textContent to safely set content, then get text length
-            tempDiv.textContent = ""; // Clear any content first
-            tempDiv.innerHTML = window.softLimitManager.sanitizeHtml(content);
-            return (tempDiv.textContent || tempDiv.innerText || "").length;
-        } else {
-            return (this.input.value || "").length;
+    /**
+     * Sanitizes HTML content by removing dangerous scripts and event handlers.
+     */
+    // Sanitize HTML content for character counting
+    sanitizeHtml(html) {
+        if (!html || typeof html !== "string") {
+            return "";
         }
+
+        // Remove script tags and their content
+        let sanitized = html.replace(
+            /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
+            ""
+        );
+
+        // Remove dangerous event handlers
+        sanitized = sanitized.replace(/\s*on\w+\s*=\s*["'][^"']*["']/gi, "");
+
+        // Remove javascript: URLs
+        sanitized = sanitized.replace(
+            /href\s*=\s*["']javascript:[^"']*["']/gi,
+            ""
+        );
+
+        return sanitized;
     }
 
+    /**
+     * Strips HTML tags from content and returns the text length for character counting.
+     */
+    // Strip HTML tags and get text length
+    getTextFromHtml(html) {
+        const tempDiv = document.createElement("div");
+        tempDiv.textContent = ""; // Clear any content first
+        tempDiv.innerHTML = this.sanitizeHtml(html);
+        return (tempDiv.textContent || tempDiv.innerText || "").length;
+    }
+
+    /**
+     * Updates the counter display with current character count and applies appropriate styling.
+     */
     updateCounter() {
         const length = this.getTextLength();
         const percentage = (length / this.limit) * 100;
@@ -392,158 +533,26 @@ class SoftLimitCounter {
         }
     }
 
+    /**
+     * Initializes the handler by updating the counter and setting up event listeners.
+     */
+    init() {
+        this.updateCounter();
+        this.setupEventListeners();
+    }
+
+    // Abstract methods to be implemented by subclasses
+    getTextLength() {
+        throw new Error("getTextLength must be implemented by subclass");
+    }
+
     setupEventListeners() {
-        if (this.isRichText) {
-            this.setupRichTextListeners();
-        } else {
-            this.setupPlainTextListeners();
-        }
+        throw new Error("setupEventListeners must be implemented by subclass");
     }
 
-    setupPlainTextListeners() {
-        const updateCounter = () => this.updateCounter();
-        const debouncedUpdate = this.debounce(
-            updateCounter,
-            CONFIG.DEBOUNCE_FAST
-        );
-
-        this.addEventListenerTracked(this.input, "input", debouncedUpdate);
-        this.addEventListenerTracked(this.input, "keyup", debouncedUpdate);
-        this.addEventListenerTracked(this.input, "change", updateCounter);
-        this.addEventListenerTracked(this.input, "paste", () =>
-            this.addTimerTracked(setTimeout(updateCounter, 10))
-        );
-    }
-
-    setupRichTextListeners() {
-        const updateCounter = () => this.updateCounter();
-        const debouncedUpdate = this.debounce(
-            updateCounter,
-            CONFIG.DEBOUNCE_FAST
-        );
-
-        // CKEditor 5 (craft\ckeditor\Field)
-        if (this.fieldClass === "craft\\ckeditor\\Field") {
-            const editableElement = this.fieldContainer?.querySelector(
-                ".ck-editor__editable"
-            );
-            if (editableElement) {
-                this.addEventListenerTracked(
-                    editableElement,
-                    "input",
-                    debouncedUpdate
-                );
-                this.addEventListenerTracked(
-                    editableElement,
-                    "keyup",
-                    debouncedUpdate
-                );
-                this.addEventListenerTracked(editableElement, "paste", () =>
-                    this.addTimerTracked(
-                        setTimeout(updateCounter, CONFIG.PASTE_DELAY)
-                    )
-                );
-                this.addEventListenerTracked(
-                    editableElement,
-                    "blur",
-                    updateCounter
-                );
-
-                // Set up mutation observer for content changes
-                const debouncedMutationUpdate = this.debounce(
-                    updateCounter,
-                    CONFIG.DEBOUNCE_MUTATION
-                );
-                const contentObserver = this.addObserverTracked(
-                    new MutationObserver((mutations) => {
-                        let shouldUpdate = false;
-                        mutations.forEach((mutation) => {
-                            if (
-                                mutation.type === "childList" ||
-                                mutation.type === "characterData"
-                            ) {
-                                shouldUpdate = true;
-                            }
-                        });
-                        if (shouldUpdate) {
-                            debouncedMutationUpdate();
-                        }
-                    })
-                );
-
-                contentObserver.observe(editableElement, {
-                    childList: true,
-                    subtree: true,
-                    characterData: true,
-                });
-
-                // Try to find the CKEditor instance for more advanced events
-                this.setupCKEditor5Instance(editableElement, debouncedUpdate);
-            }
-        }
-        // CKEditor 4 events
-        else if (typeof CKEDITOR !== "undefined") {
-            const ckInstance =
-                CKEDITOR.instances[this.input.id] ||
-                CKEDITOR.instances[this.input.name];
-            if (ckInstance) {
-                ckInstance.on("change", updateCounter);
-                ckInstance.on("key", debouncedUpdate);
-                ckInstance.on("paste", () =>
-                    this.addTimerTracked(
-                        setTimeout(updateCounter, CONFIG.PASTE_DELAY)
-                    )
-                );
-            }
-        }
-        // Redactor events
-        else if (
-            typeof $ !== "undefined" &&
-            this.input.classList.contains("redactor")
-        ) {
-            try {
-                const redactorInstance = $(this.input).data("redactor");
-                if (redactorInstance) {
-                    redactorInstance.core
-                        .editor()
-                        .on("keyup input", debouncedUpdate);
-                    redactorInstance.core
-                        .editor()
-                        .on("paste", () =>
-                            this.addTimerTracked(
-                                setTimeout(updateCounter, CONFIG.PASTE_DELAY)
-                            )
-                        );
-                }
-            } catch (e) {
-                console.warn("Soft Limit: Error setting up Redactor events", e);
-            }
-        }
-    }
-
-    setupCKEditor5Instance(editableElement, debouncedUpdate) {
-        const checkForInstance = () => {
-            if (editableElement.ckeditorInstance) {
-                const editor = editableElement.ckeditorInstance;
-                try {
-                    editor.model.document.on("change:data", debouncedUpdate);
-                    editor.editing.view.document.on("keyup", debouncedUpdate);
-                } catch (e) {
-                    // Silently handle any CKEditor API errors
-                    console.warn(
-                        "Soft Limit: Could not bind to CKEditor instance",
-                        e
-                    );
-                }
-            } else {
-                this.addTimerTracked(
-                    setTimeout(checkForInstance, CONFIG.CKINSTANCE_CHECK_DELAY)
-                );
-            }
-        };
-        checkForInstance();
-    }
-
+    /**
+     * Cleans up all tracked resources including event listeners, observers, and timers.
+     */
     destroy() {
         // Clean up event listeners
         this.eventListeners.forEach(({ element, event, handler, options }) => {
@@ -558,6 +567,355 @@ class SoftLimitCounter {
         // Clean up timers
         this.timers.forEach((timer) => clearTimeout(timer));
         this.timers = [];
+    }
+}
+
+// Plain text handler
+class PlainTextHandler extends BaseHandler {
+    /**
+     * Returns the character count from the textarea value.
+     */
+    getTextLength() {
+        return (this.input.value || "").length;
+    }
+
+    /**
+     * Sets up event listeners for plain text input fields.
+     */
+    setupEventListeners() {
+        const updateCounter = () => this.updateCounter();
+        const debouncedUpdate = this.debounce(
+            updateCounter,
+            CONFIG.DEBOUNCE_FAST
+        );
+
+        this.addEventListenerTracked(this.input, "input", debouncedUpdate);
+        this.addEventListenerTracked(this.input, "keyup", debouncedUpdate);
+        this.addEventListenerTracked(this.input, "change", updateCounter);
+        this.addEventListenerTracked(this.input, "paste", () =>
+            this.addTimerTracked(setTimeout(updateCounter, 10))
+        );
+    }
+}
+
+// CKEditor 5 handler
+class CKEditor5Handler extends BaseHandler {
+    /**
+     * Extracts text content from CKEditor 5's editable element or falls back to textarea value.
+     */
+    getTextLength() {
+        const editableElement = this.fieldContainer?.querySelector(
+            ".ck-editor__editable"
+        );
+        if (editableElement) {
+            const content = editableElement.innerHTML || "";
+            return this.getTextFromHtml(content);
+        }
+        return (this.input.value || "").length;
+    }
+
+    /**
+     * Sets up event listeners and mutation observer for CKEditor 5 instances.
+     */
+    setupEventListeners() {
+        const updateCounter = () => this.updateCounter();
+        const debouncedUpdate = this.debounce(
+            updateCounter,
+            CONFIG.DEBOUNCE_FAST
+        );
+
+        const editableElement = this.fieldContainer?.querySelector(
+            ".ck-editor__editable"
+        );
+        if (editableElement) {
+            this.addEventListenerTracked(
+                editableElement,
+                "input",
+                debouncedUpdate
+            );
+            this.addEventListenerTracked(
+                editableElement,
+                "keyup",
+                debouncedUpdate
+            );
+            this.addEventListenerTracked(editableElement, "paste", () =>
+                this.addTimerTracked(
+                    setTimeout(updateCounter, CONFIG.PASTE_DELAY)
+                )
+            );
+            this.addEventListenerTracked(
+                editableElement,
+                "blur",
+                updateCounter
+            );
+
+            // Set up mutation observer for content changes
+            const debouncedMutationUpdate = this.debounce(
+                updateCounter,
+                CONFIG.DEBOUNCE_MUTATION
+            );
+            const contentObserver = this.addObserverTracked(
+                new MutationObserver((mutations) => {
+                    let shouldUpdate = false;
+                    mutations.forEach((mutation) => {
+                        if (
+                            mutation.type === "childList" ||
+                            mutation.type === "characterData"
+                        ) {
+                            shouldUpdate = true;
+                        }
+                    });
+                    if (shouldUpdate) {
+                        debouncedMutationUpdate();
+                    }
+                })
+            );
+
+            contentObserver.observe(editableElement, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+            });
+
+            // Try to find the CKEditor instance for more advanced events
+            this.setupCKEditor5Instance(editableElement, debouncedUpdate);
+        }
+    }
+
+    /**
+     * Attempts to bind to the CKEditor 5 instance for enhanced event handling.
+     */
+    setupCKEditor5Instance(editableElement, debouncedUpdate) {
+        const checkForInstance = () => {
+            if (editableElement.ckeditorInstance) {
+                const editor = editableElement.ckeditorInstance;
+                try {
+                    editor.model.document.on("change:data", debouncedUpdate);
+                    editor.editing.view.document.on("keyup", debouncedUpdate);
+                } catch (e) {
+                    console.warn(
+                        "Soft Limit: Could not bind to CKEditor instance",
+                        e
+                    );
+                }
+            } else {
+                this.addTimerTracked(
+                    setTimeout(checkForInstance, CONFIG.CKINSTANCE_CHECK_DELAY)
+                );
+            }
+        };
+        checkForInstance();
+    }
+}
+
+// CKEditor 4 handler
+class CKEditor4Handler extends BaseHandler {
+    /**
+     * Gets text content from CKEditor 4 instance or falls back to textarea value.
+     */
+    getTextLength() {
+        if (typeof CKEDITOR !== "undefined") {
+            const ckInstance =
+                CKEDITOR.instances[this.input.id] ||
+                CKEDITOR.instances[this.input.name];
+            if (ckInstance) {
+                const content = ckInstance.getData();
+                return this.getTextFromHtml(content);
+            }
+        }
+        return (this.input.value || "").length;
+    }
+
+    /**
+     * Sets up event listeners for CKEditor 4 instances using the CKEditor API.
+     */
+    setupEventListeners() {
+        const updateCounter = () => this.updateCounter();
+        const debouncedUpdate = this.debounce(
+            updateCounter,
+            CONFIG.DEBOUNCE_FAST
+        );
+
+        if (typeof CKEDITOR !== "undefined") {
+            const ckInstance =
+                CKEDITOR.instances[this.input.id] ||
+                CKEDITOR.instances[this.input.name];
+            if (ckInstance) {
+                ckInstance.on("change", updateCounter);
+                ckInstance.on("key", debouncedUpdate);
+                ckInstance.on("paste", () =>
+                    this.addTimerTracked(
+                        setTimeout(updateCounter, CONFIG.PASTE_DELAY)
+                    )
+                );
+            }
+        }
+    }
+}
+
+// Redactor handler
+class RedactorHandler extends BaseHandler {
+    /**
+     * Creates a Redactor handler with field class information for specialized handling.
+     */
+    constructor(input, counterElement, options) {
+        super(input, counterElement, options);
+        this.fieldClass = options.fieldClass;
+    }
+
+    /**
+     * Gets text content from Redactor instance or contenteditable elements, with textarea fallback.
+     */
+    getTextLength() {
+        // First try to get content from Redactor instance (if available)
+        if (
+            typeof $ !== "undefined" &&
+            this.input.classList.contains("redactor")
+        ) {
+            const redactorInstance = $(this.input).data("redactor");
+            if (redactorInstance && redactorInstance.code) {
+                const content = redactorInstance.code.get();
+                return this.getTextFromHtml(content);
+            }
+        }
+
+        // Try to get content from contenteditable elements
+        const fieldContainer = this.input.closest(".field");
+        if (fieldContainer) {
+            const contentEditableElements = fieldContainer.querySelectorAll(
+                '[contenteditable="true"]'
+            );
+            if (contentEditableElements.length > 0) {
+                // Get content from the first contenteditable element (usually the main editor)
+                const editorContent =
+                    contentEditableElements[0].innerHTML || "";
+                return this.getTextFromHtml(editorContent);
+            }
+        }
+
+        // Fallback to textarea value
+        return (this.input.value || "").length;
+    }
+
+    /**
+     * Sets up event listeners for Redactor by delegating to the retry mechanism.
+     */
+    setupEventListeners() {
+        const updateCounter = () => this.updateCounter();
+        const debouncedUpdate = this.debounce(
+            updateCounter,
+            CONFIG.DEBOUNCE_FAST
+        );
+
+        this.setupRedactorListeners(debouncedUpdate, updateCounter);
+    }
+
+    /**
+     * Implements retry logic to wait for Redactor's contenteditable elements to be ready.
+     */
+    setupRedactorListeners(debouncedUpdate, updateCounter) {
+        let retryCount = 0;
+        const maxRetries = 10; // Try for up to 1 second (10 * 100ms)
+
+        const checkForRedactorInstance = () => {
+            try {
+                // Try to find contenteditable elements in the field container
+                const fieldContainer = this.input.closest(".field");
+                if (fieldContainer) {
+                    const contentEditableElements =
+                        fieldContainer.querySelectorAll(
+                            '[contenteditable="true"]'
+                        );
+                    if (contentEditableElements.length > 0) {
+                        return this.setupDirectContentEditableEvents(
+                            contentEditableElements,
+                            debouncedUpdate,
+                            updateCounter
+                        );
+                    }
+                }
+
+                // If we haven't found contenteditable elements yet and haven't exceeded max retries, retry
+                if (retryCount < maxRetries) {
+                    retryCount++;
+                    this.addTimerTracked(
+                        setTimeout(
+                            checkForRedactorInstance,
+                            CONFIG.CKINSTANCE_CHECK_DELAY
+                        )
+                    );
+                } else {
+                    // Fallback to plain text events if no contenteditable elements found after retries
+                    this.fallbackToPlainText(debouncedUpdate, updateCounter);
+                }
+            } catch (e) {
+                console.warn("Soft Limit: Error setting up Redactor events", e);
+                this.fallbackToPlainText(debouncedUpdate, updateCounter);
+            }
+        };
+
+        // Check immediately and retry if needed
+        checkForRedactorInstance();
+    }
+
+    /**
+     * Binds events directly to contenteditable elements with mutation observer for content changes.
+     */
+    setupDirectContentEditableEvents(
+        contentEditableElements,
+        debouncedUpdate,
+        updateCounter
+    ) {
+        // Set up events on all contenteditable elements
+        contentEditableElements.forEach((element) => {
+            // Bind direct DOM events
+            this.addEventListenerTracked(element, "input", debouncedUpdate);
+            this.addEventListenerTracked(element, "keyup", debouncedUpdate);
+            this.addEventListenerTracked(element, "paste", () =>
+                this.addTimerTracked(
+                    setTimeout(updateCounter, CONFIG.PASTE_DELAY)
+                )
+            );
+            this.addEventListenerTracked(element, "blur", updateCounter);
+
+            // Set up mutation observer to catch any content changes
+            const contentObserver = this.addObserverTracked(
+                new MutationObserver((mutations) => {
+                    let shouldUpdate = false;
+                    mutations.forEach((mutation) => {
+                        if (
+                            mutation.type === "childList" ||
+                            mutation.type === "characterData"
+                        ) {
+                            shouldUpdate = true;
+                        }
+                    });
+                    if (shouldUpdate) {
+                        debouncedUpdate();
+                    }
+                })
+            );
+
+            contentObserver.observe(element, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+            });
+        });
+
+        return true;
+    }
+
+    /**
+     * Fallback method that sets up basic event listeners on the textarea element.
+     */
+    fallbackToPlainText(debouncedUpdate, updateCounter) {
+        this.addEventListenerTracked(this.input, "input", debouncedUpdate);
+        this.addEventListenerTracked(this.input, "keyup", debouncedUpdate);
+        this.addEventListenerTracked(this.input, "change", updateCounter);
+        this.addEventListenerTracked(this.input, "paste", () =>
+            this.addTimerTracked(setTimeout(updateCounter, 10))
+        );
     }
 }
 
