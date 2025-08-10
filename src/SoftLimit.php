@@ -47,12 +47,6 @@ class SoftLimit extends Plugin
 
         $this->attachEventHandlers();
         $this->registerAssetBundles();
-
-        // Any code that creates an element query or loads Twig should be deferred until
-        // after Craft is fully initialized, to avoid conflicts with other plugins/modules
-        Craft::$app->onInit(function () {
-            // ...
-        });
     }
 
     protected function createSettingsModel(): ?Model
@@ -199,6 +193,11 @@ class SoftLimit extends Plugin
      */
     private function validateSoftLimitInstructions(Field $field, ModelEvent $event): void
     {
+        // Skip validation entirely on Craft 4 to avoid Matrix field initialization issues
+        if (version_compare(Craft::$app->getVersion(), '5.0.0', '<')) {
+            return;
+        }
+
         $instructions = $field->instructions;
 
         // Find all soft-limit markers in the instructions
