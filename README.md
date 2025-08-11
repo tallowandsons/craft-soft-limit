@@ -34,7 +34,7 @@ Unlike hard character limits that block saving, Soft Limit provides gentle guida
 ### Works with multiple field types
 Works seamlessly with Plain Text, CKEditor, and Redactor fields.
 
-For rich text fields, Soft Limit intelligently counts characters while handling rich text formatting, providing accurate counts that reflect the actual text content.
+For rich text fields, Soft Limit counts characters while handling rich text formatting, providing accurate counts that reflect the actual text content.
 
 ## Examples
 
