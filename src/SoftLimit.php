@@ -13,6 +13,7 @@ use craft\events\TemplateEvent;
 use craft\fields\PlainText;
 use craft\web\View;
 use tallowandsons\softlimit\models\Settings;
+use tallowandsons\softlimit\models\Limit;
 use tallowandsons\softlimit\web\assets\cp\CpAsset;
 use yii\base\Event;
 
@@ -125,11 +126,10 @@ class SoftLimit extends Plugin
                     /** @var Field $field */
                     $field = $event->sender;
 
-                    // Check field instructions for soft limit marker
-                    // (limit is also validated at this point, and will be null if invalid)
-                    $softLimit = $this->getSoftLimit($field);
+                    // Check field instructions for soft limit marker (limit and mode)
+                    $constraint = $this->getSoftConstraint($field);
 
-                    if ($softLimit && $softLimit > 0) {
+                    if ($constraint && $constraint->maxLimit > 0) {
                         $view = Craft::$app->getView();
                         $inputId = $view->namespaceInputId($field->handle);
                         $fieldClass = get_class($field);
@@ -137,9 +137,10 @@ class SoftLimit extends Plugin
                         // Add the counter HTML with all necessary data attributes
                         $counterHtml = '<div class="soft-limit-counter" ' .
                             'data-input="' . htmlspecialchars($inputId) . '" ' .
-                            'data-limit="' . $softLimit . '" ' .
+                            'data-limit="' . $constraint->maxLimit . '" ' .
+                            'data-mode="' . htmlspecialchars($constraint->mode) . '" ' .
                             'data-field-class="' . htmlspecialchars($fieldClass) . '">' .
-                            '0/' . $softLimit . '</div>';
+                            '0/' . $constraint->maxLimit . '</div>';
 
                         // inject a smidge of JavaScript to hide the "[soft-limit:x]" part of the instructions
                         // only inject the immediate script once per page load
@@ -200,9 +201,9 @@ class SoftLimit extends Plugin
 
         $instructions = $field->instructions;
 
-        // Find all soft-limit markers in the instructions
-        $matches = [];
-        $matchCount = preg_match_all('/\[soft-limit:([^\]]+)\]/', $instructions, $matches, PREG_SET_ORDER);
+        // Find all soft-limit markers using the Limit model helper
+        $occurrences = Limit::scanInstructions($instructions);
+        $matchCount = count($occurrences);
 
         if ($matchCount === 0) {
             return; // No soft-limit markers found, nothing to validate
@@ -210,27 +211,26 @@ class SoftLimit extends Plugin
 
         $errors = [];
 
-        foreach ($matches as $match) {
-            $fullMatch = $match[0]; // e.g., "[soft-limit:100]"
-            $limitValue = trim($match[1]); // e.g., "100"
+        foreach ($occurrences as $occurrence) {
+            $fullMatch = $occurrence['full']; // includes brackets
+            $inner = $occurrence['inner'];
 
-            // Check if the limit value is a valid integer
-            if (!ctype_digit($limitValue)) {
-                $errors[] = "Invalid soft limit value '{$limitValue}' in '{$fullMatch}'. Must be a positive integer.";
+            $limit = Limit::fromInner($inner);
+            if (!$limit) {
+                $errors[] = "Invalid soft limit '{$fullMatch}'. Use [soft-limit:NNN], [soft-limit:NNNc], or [soft-limit:NNNw].";
                 continue;
             }
 
-            $numericLimit = (int)$limitValue;
-            $validatedLimit = $this->validateLimit($numericLimit);
-
-            if ($validatedLimit === null) {
-                $errors[] = "Invalid soft limit value '{$limitValue}' in '{$fullMatch}'. Must be between 1 and 100,000.";
+            if (!$limit->validate()) {
+                foreach ($limit->getFirstErrors() as $attr => $msg) {
+                    $errors[] = "Invalid soft limit in '{$fullMatch}': {$msg}";
+                }
             }
         }
 
         // Check for multiple soft-limit markers (not allowed)
         if ($matchCount > 1) {
-            $errors[] = "Multiple soft-limit markers found. Only one [soft-limit:X] marker is allowed per field.";
+            $errors[] = "Multiple soft-limit markers found. Only one [soft-limit:...] marker is allowed per field.";
         }
 
         // If there are validation errors, prevent saving and add errors to the field
@@ -250,48 +250,28 @@ class SoftLimit extends Plugin
      * @param Field $field The field to check
      * @return int|null Returns the validated soft limit or null if none found or invalid
      */
-    private function getSoftLimit(Field $field): ?int
+    // Legacy getSoftLimit/validateLimit removed; parsing is centralized in Limit
+
+    /**
+     * Extract and validate the soft limit constraint from a field's effective instructions.
+     */
+    private function getSoftConstraint(Field $field): ?Limit
     {
         $instructions = $this->getFieldInstructions($field);
-
         if (!$instructions) {
             return null;
         }
 
-        if (preg_match('/\[soft-limit:(\d+)\]/', $instructions, $matches)) {
-            $rawLimit = (int)$matches[1];
-            $softLimit = $this->validateLimit($rawLimit);
+        $limit = Limit::fromInstructions($instructions);
+        if ($limit && $limit->validate()) {
+            return $limit;
+        }
 
-            if ($softLimit === null) {
-                Craft::warning("Soft Limit: Invalid limit '{$rawLimit}' for field '{$field->handle}'. Skipping.", __METHOD__);
-                return null;
-            }
-
-            return $softLimit;
+        if ($limit) {
+            Craft::warning("Soft Limit: Invalid limit '{$limit->maxLimit}' for field '{$field->handle}'. Skipping.", __METHOD__);
         }
 
         return null;
-    }
-
-    /**
-     * Validate and sanitize the soft limit value
-     *
-     * @param int $rawLimit
-     * @return int|null Returns validated limit or null if invalid
-     */
-    private function validateLimit(int $rawLimit): ?int
-    {
-        // Check minimum limit (at least 1 character)
-        if ($rawLimit < 1) {
-            return null;
-        }
-
-        // Check maximum limit (prevent performance issues and reasonable limits)
-        if ($rawLimit > 100000) {
-            return null;
-        }
-
-        return $rawLimit;
     }
 
     /**

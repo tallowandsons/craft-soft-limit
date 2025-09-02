@@ -7,9 +7,9 @@
 
         allInstructionsElements.forEach(function (elem) {
             var text = elem.innerHTML || elem.textContent || "";
-            if (text.match(/\[soft-limit:\s*\d+\s*\]/i)) {
+            if (text.match(/\[soft-limit:\s*\d+\s*[cw]?\s*\]/i)) {
                 var cleaned = text
-                    .replace(/\s*\[soft-limit:\s*\d+\s*\]/gi, " ")
+                    .replace(/\s*\[soft-limit:\s*\d+\s*[cw]?\s*\]/gi, " ")
                     .replace(/\s+/g, " ")
                     .trim();
 

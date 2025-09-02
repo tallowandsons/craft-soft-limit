@@ -62,6 +62,7 @@ class SoftLimitManager {
         const inputId = counterElement.dataset.input;
         const rawLimit = counterElement.dataset.limit;
         const fieldClass = counterElement.dataset.fieldClass;
+        const mode = counterElement.dataset.mode || "chars"; // 'chars' | 'words'
 
         // Determine if this is a rich text field from the field class
         const isRichText = this.isRichTextField(fieldClass);
@@ -103,6 +104,7 @@ class SoftLimitManager {
         // Create counter instance
         const counter = new SoftLimitCounter(input, counterElement, {
             limit: limit,
+            mode: mode,
             isRichText: isRichText,
             fieldClass: fieldClass,
             fieldContainer: fieldContainer,
@@ -309,6 +311,7 @@ class SoftLimitCounter {
         this.input = input;
         this.counterElement = counterElement;
         this.limit = options.limit;
+        this.mode = options.mode || "chars";
         this.isRichText = options.isRichText;
         this.fieldClass = options.fieldClass;
         this.fieldContainer = options.fieldContainer;
@@ -326,6 +329,7 @@ class SoftLimitCounter {
         if (this.isPlainTextField()) {
             return new PlainTextHandler(this.input, this.counterElement, {
                 limit: this.limit,
+                mode: this.mode,
                 fieldContainer: this.fieldContainer,
             });
         }
@@ -333,6 +337,7 @@ class SoftLimitCounter {
         if (this.isCKEditor5Field()) {
             return new CKEditor5Handler(this.input, this.counterElement, {
                 limit: this.limit,
+                mode: this.mode,
                 fieldContainer: this.fieldContainer,
             });
         }
@@ -340,6 +345,7 @@ class SoftLimitCounter {
         if (this.isCKEditor4Field()) {
             return new CKEditor4Handler(this.input, this.counterElement, {
                 limit: this.limit,
+                mode: this.mode,
                 fieldContainer: this.fieldContainer,
             });
         }
@@ -347,6 +353,7 @@ class SoftLimitCounter {
         if (this.isRedactorField()) {
             return new RedactorHandler(this.input, this.counterElement, {
                 limit: this.limit,
+                mode: this.mode,
                 fieldClass: this.fieldClass,
                 fieldContainer: this.fieldContainer,
             });
@@ -354,6 +361,7 @@ class SoftLimitCounter {
 
         return new PlainTextHandler(this.input, this.counterElement, {
             limit: this.limit,
+            mode: this.mode,
             fieldContainer: this.fieldContainer,
         });
     }
@@ -427,6 +435,7 @@ class BaseHandler {
         this.input = input;
         this.counterElement = counterElement;
         this.limit = options.limit;
+        this.mode = options.mode || "chars";
         this.fieldContainer = options.fieldContainer;
 
         // Track resources for cleanup
@@ -504,12 +513,12 @@ class BaseHandler {
     /**
      * Strips HTML tags from content and returns the text length for character counting.
      */
-    // Strip HTML tags and get text length
+    // Strip HTML tags and return plain text
     getTextFromHtml(html) {
         const tempDiv = document.createElement("div");
         tempDiv.textContent = ""; // Clear any content first
         tempDiv.innerHTML = this.sanitizeHtml(html);
-        return (tempDiv.textContent || tempDiv.innerText || "").length;
+        return tempDiv.textContent || tempDiv.innerText || "";
     }
 
     /**
@@ -542,8 +551,50 @@ class BaseHandler {
     }
 
     // Abstract methods to be implemented by subclasses
+    getPlainText() {
+        throw new Error("getPlainText must be implemented by subclass");
+    }
+
+    // Word counting utility with Intl.Segmenter fallback
+    countWords(text) {
+        if (!text) return 0;
+
+        if (typeof Intl !== "undefined" && Intl.Segmenter) {
+            try {
+                const seg = new Intl.Segmenter(undefined, {
+                    granularity: "word",
+                });
+                let count = 0;
+                for (const { isWordLike } of seg.segment(text)) {
+                    if (isWordLike) count++;
+                }
+                return count;
+            } catch (e) {
+                // fall through
+            }
+        }
+
+        // Fallback: approximate CJK characters as words and Latin-like tokens via regex
+        const cjkMatches = text.match(
+            /\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}/gu
+        );
+        const nonCjk = text.replace(
+            /\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}/gu,
+            " "
+        );
+        const latinTokens = nonCjk.match(/[\p{L}\p{N}\p{M}'’\-]+/gu);
+        return (
+            (cjkMatches ? cjkMatches.length : 0) +
+            (latinTokens ? latinTokens.length : 0)
+        );
+    }
+
     getTextLength() {
-        throw new Error("getTextLength must be implemented by subclass");
+        const text = this.getPlainText();
+        if (this.mode === "words") {
+            return this.countWords(text);
+        }
+        return text.length;
     }
 
     setupEventListeners() {
@@ -572,11 +623,8 @@ class BaseHandler {
 
 // Plain text handler
 class PlainTextHandler extends BaseHandler {
-    /**
-     * Returns the character count from the textarea value.
-     */
-    getTextLength() {
-        return (this.input.value || "").length;
+    getPlainText() {
+        return this.input.value || "";
     }
 
     /**
@@ -600,10 +648,7 @@ class PlainTextHandler extends BaseHandler {
 
 // CKEditor 5 handler
 class CKEditor5Handler extends BaseHandler {
-    /**
-     * Extracts text content from CKEditor 5's editable element or falls back to textarea value.
-     */
-    getTextLength() {
+    getPlainText() {
         const editableElement = this.fieldContainer?.querySelector(
             ".ck-editor__editable"
         );
@@ -611,7 +656,7 @@ class CKEditor5Handler extends BaseHandler {
             const content = editableElement.innerHTML || "";
             return this.getTextFromHtml(content);
         }
-        return (this.input.value || "").length;
+        return this.input.value || "";
     }
 
     /**
@@ -710,10 +755,7 @@ class CKEditor5Handler extends BaseHandler {
 
 // CKEditor 4 handler
 class CKEditor4Handler extends BaseHandler {
-    /**
-     * Gets text content from CKEditor 4 instance or falls back to textarea value.
-     */
-    getTextLength() {
+    getPlainText() {
         if (typeof CKEDITOR !== "undefined") {
             const ckInstance =
                 CKEDITOR.instances[this.input.id] ||
@@ -723,7 +765,7 @@ class CKEditor4Handler extends BaseHandler {
                 return this.getTextFromHtml(content);
             }
         }
-        return (this.input.value || "").length;
+        return this.input.value || "";
     }
 
     /**
@@ -763,10 +805,7 @@ class RedactorHandler extends BaseHandler {
         this.fieldClass = options.fieldClass;
     }
 
-    /**
-     * Gets text content from Redactor instance or contenteditable elements, with textarea fallback.
-     */
-    getTextLength() {
+    getPlainText() {
         // First try to get content from Redactor instance (if available)
         if (
             typeof $ !== "undefined" &&
@@ -794,7 +833,7 @@ class RedactorHandler extends BaseHandler {
         }
 
         // Fallback to textarea value
-        return (this.input.value || "").length;
+        return this.input.value || "";
     }
 
     /**
