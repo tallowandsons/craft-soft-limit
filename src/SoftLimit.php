@@ -268,7 +268,7 @@ class SoftLimit extends Plugin
         }
 
         if ($limit) {
-            Craft::warning("Soft Limit: Invalid limit '{$limit->maxLimit}' for field '{$field->handle}'. Skipping.", __METHOD__);
+            Craft::warning("Soft Limit: Invalid limit in instructions '{$instructions}' for field '{$field->handle}'. Skipping.", __METHOD__);
         }
 
         return null;
