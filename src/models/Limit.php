@@ -13,7 +13,7 @@ class Limit extends Model
     /**
      * Full marker regex to find [soft-limit:...]
      */
-    public const FULL_MARKER_REGEX = '/\[soft-limit:\s*([^\]]+)\]/i';
+    public const FULL_MARKER_REGEX = '/\[soft-limit:\s*(\d+\s*[cw]?)\s*\]/i';
 
     /**
      * Inner value regex for "100", "100c", or "100w"
