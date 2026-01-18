@@ -19,7 +19,9 @@ composer require tallowandsons/craft-soft-limit
 Add soft limits to any text field by including a special marker in the field's instructions:
 
 1. Edit any Plain Text, CKEditor, or Redactor field
-2. In the field's **Instructions** field, add: `[soft-limit:150]` (replace 150 with your desired character limit)
+2. In the field's **Instructions** field, add one of:
+	- `[soft-limit:150]` or `[soft-limit:150c]` for 150 characters
+	- `[soft-limit:50w]` for 50 words
 3. Save the field
 
 ### 3. Start Writing 🎉
@@ -34,13 +36,13 @@ Unlike hard character limits that block saving, Soft Limit provides gentle guida
 ### Works with multiple field types
 Works seamlessly with Plain Text, CKEditor, and Redactor fields.
 
-For rich text fields, Soft Limit counts characters while handling rich text formatting, providing accurate counts that reflect the actual text content.
+For rich text fields, Soft Limit strips formatting before counting, and will count characters or words depending on the marker you use.
 
 ## Examples
 
 ### Product Descriptions
 ```
-Write a compelling product description that highlights key features. [soft-limit:300]
+Write a compelling product description that highlights key features. [soft-limit:20w]
 ```
 
 ### Meta Descriptions
